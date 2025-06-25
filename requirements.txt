@@ -1,0 +1,8 @@
+google-adk 
+python_a2a
+python-dotenv
+requests
+a2a-sdk
+httpx
+pydantic
+pillow
