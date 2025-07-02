@@ -308,6 +308,7 @@ def convert_a2a_parts_to_genai(parts: list[Part]) -> list[genai_types.Part]:
         result = [convert_a2a_part_to_genai(part) for part in parts]
         logger.debug(f"Converted {len(parts)} A2A parts to {len(result)} GenAI parts")
         return result
+    
     except Exception as e:
         logger.error(f"Error converting A2A parts to GenAI: {e}")
         # Return a simple text part as fallback

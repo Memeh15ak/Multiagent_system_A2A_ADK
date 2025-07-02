@@ -28,7 +28,7 @@ from a2a.utils import get_text_parts
 from a2a.utils.errors import ServerError
 
 # Import the audio agent creator from your audio_agent.py file
-from Agents.audio_agent.audio_adk import create_audio_agent
+#from Agents.audio_agent.audio_adk import create_audio_agent
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -45,15 +45,71 @@ class ADKAudioAgentExecutor(AgentExecutor):
     async def _get_agent_and_runner(self):
         """Lazily initialize the agent and runner when first needed."""
         if self._agent is None:
-            # Create the audio agent
-            self._agent = await create_audio_agent()
-            self.runner = Runner(
-                app_name=self._agent.name,
-                agent=self._agent,
-                artifact_service=InMemoryArtifactService(),
-                session_service=InMemorySessionService(),
-                memory_service=InMemoryMemoryService(),
-            )
+            try:
+                from Agents.audio_agent.audio_adk import create_audio_agent
+                logger.info(f"Imported create_audio_agent: {type(create_audio_agent)}")
+                logger.info(f"Is callable: {callable(create_audio_agent)}")
+                logger.info(f"Has __call__: {hasattr(create_audio_agent, '__call__')}")
+                
+                if hasattr(create_audio_agent, 'name'):
+                    logger.info(f"Object has name attribute: {create_audio_agent.name}")
+                    # It's already an agent instance, use it directly
+                    self._agent = create_audio_agent
+                else:
+                    # It's a function, call it (but don't await since it returns a tuple)
+                    logger.info("Calling create_audio_agent() as function")
+                    result = create_audio_agent()
+                    
+                    # Handle different return types
+                    if isinstance(result, tuple):
+                        # If it returns a tuple, assume the first element is the agent
+                        logger.info(f"Function returned tuple with {len(result)} elements")
+                        self._agent = result[0] if result else None
+                        if self._agent is None:
+                            raise ValueError("create_audio_agent returned empty tuple or None agent")
+                    else:
+                        # If it returns a single object, use it as the agent
+                        self._agent = result
+                    
+                logger.info(f"Successfully created agent: {type(self._agent)}")
+                
+                # Verify the agent has required attributes
+                if not hasattr(self._agent, 'name'):
+                    logger.warning("Agent doesn't have 'name' attribute, using default")
+                    # If agent doesn't have name, add it or use a default
+                    if hasattr(self._agent, '__class__'):
+                        agent_name = self._agent.__class__.__name__
+                    else:
+                        agent_name = "AudioAgent"
+                    
+                    # Set name attribute if possible
+                    try:
+                        self._agent.name = agent_name
+                    except AttributeError:
+                        # Can't set name, use default for runner
+                        pass
+                        
+            except Exception as e:
+                logger.error(f"Failed to create audio agent: {e}")
+                import traceback
+                logger.error(f"Full traceback: {traceback.format_exc()}")
+                raise
+                
+            # Create runner with proper error handling
+            try:
+                agent_name = getattr(self._agent, 'name', 'AudioAgent')
+                self.runner = Runner(
+                    app_name=agent_name,
+                    agent=self._agent,
+                    artifact_service=InMemoryArtifactService(),
+                    session_service=InMemorySessionService(),
+                    memory_service=InMemoryMemoryService(),
+                )
+                logger.info(f"Successfully created runner for agent: {agent_name}")
+            except Exception as e:
+                logger.error(f"Failed to create runner: {e}")
+                raise
+                
         return self._agent, self.runner
 
     def _run_agent(

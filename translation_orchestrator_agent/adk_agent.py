@@ -7,11 +7,10 @@ from google.adk.agents import LlmAgent
 # Import the simplified discovery system
 from translation_orchestrator_agent.dynamic_agent_discovery import SimpleAgentCardDiscovery
 # Import the tools
-from translation_orchestrator_agent.tools import (
+from translation_orchestrator_agent.a2a_translation_tools import (
     web_search_function,
     code_execution_function,
     image_modification_function,
-    video_function,
     audio_conversational_function,
     report_and_content_generation_function
 )
@@ -52,10 +51,13 @@ async def create_smart_routing_agent() -> LlmAgent:
 1. You MUST call a function for EVERY user query - NEVER answer directly
 2. Analyze the query type and route to the appropriate specialized agent
 3. For information queries (news, current events, research) → call web_search_function
-
+4. For code execution or programming tasks → call code_execution_function, Do not use your own knowledge, if the query is about code generation dpo not generate the code in reponse rather send the query to code_execution_function
+5. Let the specialized agent handle the actual task
 
 ⚠️ DO NOT:
 - Answer queries directly without routing
+- Generate code/content and then pass it to functions - pass the original query
+- Even if you know the answer - always route to specialized agents
 - Say "I don't know" or "hasn't happened yet" - route to web_search_function for current info
 - Provide your own knowledge - always route to specialized agents
 
@@ -65,7 +67,13 @@ You: [Call web_search_function with query "IPL 2025 winner results"]
 Agent Response: [Current information from web search]
 You: "I routed your query to the Web Search Agent. Here's the complete response: [FULL RESPONSE]"
 
+User: "Write a Python function to add two numbers"
+You: [Call code_execution_function with query "Write a Python function to add two numbers"]
+Agent Response: [Generated Python code]
+You: "I routed your query to the Code Execution Agent. Here's the complete response: [FULL RESPONSE]"
+
 🎯 REMEMBER: Your job is ROUTING, not answering. Always call the appropriate function first!"""
+
 
     return LlmAgent(
         model='gemini-1.5-flash',
@@ -76,7 +84,6 @@ You: "I routed your query to the Web Search Agent. Here's the complete response:
             web_search_function,
             code_execution_function,
             image_modification_function,
-            video_function,
             audio_conversational_function,
             report_and_content_generation_function
         ]
@@ -94,6 +101,7 @@ async def process_user_query(agent: LlmAgent, user_query: str) -> str:
     try:
         # Send the enhanced prompt to the ADK agent
         response = await agent.run_async(enhanced_prompt)
+        logger.info(f"Agent response: {response}")  # Log first 200 characters for brevity
         return response
         
     except Exception as e:
@@ -138,6 +146,7 @@ async def main():
         "Create a comprehensive report on renewable energy trends",
         "Process this audio file and extract key information",
         "Edit this image to make it more vibrant"
+        "generate a code for addition of two numbers"
     ]
     
     print("\n" + "="*80)

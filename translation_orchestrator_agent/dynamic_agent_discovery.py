@@ -28,7 +28,6 @@ class SimpleAgentCardDiscovery:
             "audio_processor": "http://localhost:10013",
             "img_to_img_processor": "http://localhost:10014",
             "report_content_generator": "http://localhost:10015",
-            "video_processor": "http://localhost:10016",
         }
         self.agent_cards: Dict[str, AgentCardInfo] = {}
         self.discovery_timeout = 10.0
@@ -168,7 +167,8 @@ No agents are currently running. Please start the required agents and try again.
             "audio_processor": "audio_conversational_function",
             "img_to_img_processor": "image_modification_function",
             "video_processor": "video_function",
-            "report_content_generator": "report_and_content_generation_function"
+            "report_content_generator": "report_and_content_generation_function",
+            "excel_file_analysis" : "excel_file_analysis_function"
         }
         
         for card_info in available_cards:
