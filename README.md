@@ -3,8 +3,10 @@
 A comprehensive multi-agent system built with A2A (Agent-to-Agent) and ADK (Agent Development Kit) frameworks, featuring 11+ specialized agents for various tasks including RAG, Excel processing, audio processing, image analysis, and more.
 
 ## How it works??
-
-![How it works?](media/Img_to_img.mp4)
+<video width="600" controls>
+  <source src="media\Rag.gif" type="video/gif">
+  Your browser does not support the video tag.
+</video>
 
 ## 🏗️ System Architecture
 
