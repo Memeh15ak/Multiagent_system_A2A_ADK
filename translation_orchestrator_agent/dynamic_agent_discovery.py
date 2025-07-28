@@ -28,6 +28,12 @@ class SimpleAgentCardDiscovery:
             "audio_processor": "http://localhost:10013",
             "img_to_img_processor": "http://localhost:10014",
             "report_content_generator": "http://localhost:10015",
+            "excel_file_executor": "http://localhost:10016",
+            "video_processor": "http://localhost:10021",
+            "rag_agent": "http://localhost:10019",
+            "image_analyzer": "http://localhost:10017",
+            "image_generation": "http://localhost:10018"
+
         }
         self.agent_cards: Dict[str, AgentCardInfo] = {}
         self.discovery_timeout = 10.0
@@ -168,7 +174,10 @@ No agents are currently running. Please start the required agents and try again.
             "img_to_img_processor": "image_modification_function",
             "video_processor": "video_function",
             "report_content_generator": "report_and_content_generation_function",
-            "excel_file_analysis" : "excel_file_analysis_function"
+            "excel_file_analysis" : "excel_file_analysis_function",
+            "rag_agent": "rag_agent_function",
+            "image_analyzer": "image_analyzer_function",
+            "image_generation": "image_generation_function"    
         }
         
         for card_info in available_cards:

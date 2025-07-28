@@ -12,7 +12,12 @@ from translation_orchestrator_agent.a2a_translation_tools import (
     code_execution_function,
     image_modification_function,
     audio_conversational_function,
-    report_and_content_generation_function
+    report_and_content_generation_function,
+    excel_file_analysis_function,
+    rag_agent_function,
+    image_analyzer_function,
+    image_generation_function,
+    video_function
 )
 
 # Load environment variables
@@ -22,6 +27,20 @@ logger = logging.getLogger(__name__)
 
 # Global discovery instance
 card_discovery = SimpleAgentCardDiscovery()
+
+def safe_get_skills_count(full_card):
+    """Safely get skills count from card data."""
+    if not full_card:
+        return 0
+    
+    skills = full_card.get('skills', [])
+    
+    if isinstance(skills, int):
+        return skills
+    elif isinstance(skills, (list, tuple)):
+        return len(skills)
+    else:
+        return 0
 
 async def create_smart_routing_agent() -> LlmAgent:
     """Create ADK agent with complete agent card awareness."""
@@ -53,6 +72,8 @@ async def create_smart_routing_agent() -> LlmAgent:
 3. For information queries (news, current events, research) → call web_search_function
 4. For code execution or programming tasks → call code_execution_function, Do not use your own knowledge, if the query is about code generation dpo not generate the code in reponse rather send the query to code_execution_function
 5. Let the specialized agent handle the actual task
+6.If there are .pdf file route to rag agent and if there is.jpg or any image mime type decide whether its the query to generate an image or analyze the image and route to image_generation_function or image_analyzer_function respectively
+7.If there is image modification request like changes in image caoll image_modification_function and if a query is about question answering or summarization of image file route to image_analyzer_function
 
 ⚠️ DO NOT:
 - Answer queries directly without routing
@@ -74,6 +95,8 @@ You: "I routed your query to the Code Execution Agent. Here's the complete respo
 
 🎯 REMEMBER: Your job is ROUTING, not answering. Always call the appropriate function first!"""
 
+     
+
 
     return LlmAgent(
         model='gemini-1.5-flash',
@@ -85,8 +108,15 @@ You: "I routed your query to the Code Execution Agent. Here's the complete respo
             code_execution_function,
             image_modification_function,
             audio_conversational_function,
-            report_and_content_generation_function
+            report_and_content_generation_function,
+            excel_file_analysis_function,
+            rag_agent_function,
+            image_analyzer_function,
+            image_generation_function,
+            video_function
+
         ]
+        
     )
 
 async def process_user_query(agent: LlmAgent, user_query: str) -> str:
@@ -127,7 +157,7 @@ def get_agent_status():
             'card_summary': {
                 'name': card_info.full_card.get('name') if card_info.full_card else None,
                 'description': card_info.full_card.get('description') if card_info.full_card else None,
-                'skills_count': len(card_info.full_card.get('skills', [])) if card_info.full_card else 0
+                'skills_count': safe_get_skills_count(card_info.full_card)
             }
         }
     return status
@@ -147,6 +177,11 @@ async def main():
         "Process this audio file and extract key information",
         "Edit this image to make it more vibrant"
         "generate a code for addition of two numbers"
+        "Create a video summarizing the latest tech news",
+        "Analyze this Excel file and summarize the data",
+        "What are the latest advancements in AI?",
+        "Generate an image of a futuristic cityscape",
+        "What is the current weather in New York City?"
     ]
     
     print("\n" + "="*80)

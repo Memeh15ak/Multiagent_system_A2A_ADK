@@ -176,7 +176,7 @@ async def create_audio_agent_async() -> Agent:
 When you receive a request to analyze an audio file:
 
 1. ALWAYS call the analyze_audio_query function with the provided file path and user query
-2. Extract the file path from the user's message (look for file paths in the format like "C:\\path\\to\\file.mp3" or "/path/to/file.mp3")
+2. Extract the file path from the user's message (look for file paths in the format like "C:\\path\\to\\file.mp3" or "/path/to/file.ogg")
 3. Use the user's specific question as the query parameter
 4. Return the complete analysis result directly to the user
 

@@ -3,6 +3,7 @@ import logging
 import re
 import os
 import base64
+import tempfile
 from collections.abc import AsyncGenerator, AsyncIterable
 from typing import Dict, Any, Optional, List
 from uuid import uuid4
@@ -30,7 +31,6 @@ from a2a.utils import get_text_parts
 from a2a.utils.errors import ServerError
 from google.adk.agents import Agent
 from google import genai
-import tempfile
 from PIL import Image
 from io import BytesIO
 
@@ -58,87 +58,63 @@ class ImageToImageAgent:
             )
         )
     
-    def extract_image_info_from_request(self, message_parts: List[Any]) -> List[Dict[str, Any]]:
-        """Extract image information from the request parts."""
-        image_info = []
-        
-        for part in message_parts:
-            # Handle FilePart objects (from A2A framework)
-            if hasattr(part, 'root') and isinstance(part.root, FilePart):
-                file_part = part.root
-                if hasattr(file_part, 'file'):
-                    if isinstance(file_part.file, FileWithUri):
-                        # File with URI (most common case)
-                        uri = file_part.file.uri
-                        mime_type = getattr(file_part.file, 'mime_type', 'image/jpeg')
-                        
-                        # Check if it's an image based on MIME type or file extension
-                        if (mime_type and mime_type.startswith('image/')) or \
-                           any(uri.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff']):
-                            image_info.append({
-                                'type': 'uri',
-                                'uri': uri,
-                                'mime_type': mime_type,
-                                'is_local_path': os.path.exists(uri)  # Check if it's a local file path
-                            })
-                            logger.info(f"Found image URI: {uri}")
-                    
-                    elif isinstance(file_part.file, FileWithBytes):
-                        # File with bytes data
-                        bytes_data = file_part.file.bytes
-                        mime_type = getattr(file_part.file, 'mime_type', 'image/jpeg')
-                        
-                        if mime_type and mime_type.startswith('image/'):
-                            image_info.append({
-                                'type': 'bytes',
-                                'bytes': bytes_data,
-                                'mime_type': mime_type
-                            })
-                            logger.info(f"Found image bytes data, mime_type: {mime_type}")
-            
-            # Also check for direct FilePart objects (not wrapped in Part)
-            elif isinstance(part, FilePart):
-                if hasattr(part, 'file'):
-                    if isinstance(part.file, FileWithUri):
-                        uri = part.file.uri
-                        mime_type = getattr(part.file, 'mime_type', 'image/jpeg')
-                        
-                        if (mime_type and mime_type.startswith('image/')) or \
-                           any(uri.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff']):
-                            image_info.append({
-                                'type': 'uri',
-                                'uri': uri,
-                                'mime_type': mime_type,
-                                'is_local_path': os.path.exists(uri)
-                            })
-                            logger.info(f"Found direct FilePart image URI: {uri}")
-        
-        return image_info
-    
     def extract_image_paths_from_text(self, text: str) -> List[str]:
-        """Extract image file paths from text (fallback method)."""
-        # Pattern to match Windows and Unix file paths with image extensions
+        """Extract image file paths from text with improved regex patterns."""
+        # Improved patterns to handle various path formats
         patterns = [
-            r'[A-Za-z]:\\(?:[^\\/:*?"<>|\r\n]+\\)*[^\\/:*?"<>|\r\n]*\.(jpg|jpeg|png|gif|bmp|webp|tiff)',  # Windows paths
-            r'/(?:[^/\s]+/)*[^/\s]*\.(jpg|jpeg|png|gif|bmp|webp|tiff)',  # Unix paths
-            r'Image path: ([^\n\r]+)',  # Explicit image path markers
-            r'File path: ([^\n\r]+)',   # Generic file path markers
+            # Windows paths with backslashes: C:\folder\image.jpg
+            r'[A-Za-z]:\\(?:[^\\/:*?"<>|\r\n]+\\)*[^\\/:*?"<>|\r\n]*\.(jpg|jpeg|png|gif|bmp|webp|tiff)',
+            
+            # Windows paths with forward slashes: C:/folder/image.jpg
+            r'[A-Za-z]:/(?:[^/\s:*?"<>|\r\n]+/)*[^/\s:*?"<>|\r\n]*\.(jpg|jpeg|png|gif|bmp|webp|tiff)',
+            
+            # Unix absolute paths: /path/to/image.jpg
+            r'/(?:[^/\s]+/)*[^/\s]*\.(jpg|jpeg|png|gif|bmp|webp|tiff)',
+            
+            # Relative paths: ./image.jpg or ../folder/image.jpg or just image.jpg
+            r'(?:\.{1,2}/)?(?:[^/\s]+/)*[^/\s]*\.(jpg|jpeg|png|gif|bmp|webp|tiff)',
+            
+            # Explicit markers
+            r'Image path:\s*([^\n\r]+)',
+            r'File path:\s*([^\n\r]+)',
+            r'Path:\s*([^\n\r]+)',
+            
+            # Generic file path patterns (more flexible)
+            r'([A-Za-z]:[/\\](?:[^/\\:*?"<>|\r\n\s]+[/\\])*[^/\\:*?"<>|\r\n\s]*\.(jpg|jpeg|png|gif|bmp|webp|tiff))',
         ]
         
         image_paths = []
+        
         for pattern in patterns:
             matches = re.findall(pattern, text, re.IGNORECASE)
             for match in matches:
                 if isinstance(match, tuple):
-                    # For patterns with groups, take the full match or the path part
-                    path = match[0] if len(match) > 1 else match
+                    # For patterns with groups, find the actual path
+                    path = None
+                    for group in match:
+                        if group and ('.' in group or '/' in group or '\\' in group):
+                            path = group
+                            break
+                    if not path:
+                        path = match[0]  # Fallback to first group
                 else:
                     path = match
                 
                 # Clean up the path
-                path = path.strip().strip('"\'')
-                if os.path.exists(path) and path not in image_paths:
-                    image_paths.append(path)
+                path = path.strip().strip('"\'').strip()
+                
+                # Validate the path
+                if path and len(path) > 3:  # Minimum meaningful path length
+                    # Check if it's a valid image file extension
+                    if any(path.lower().endswith(f'.{ext}') for ext in ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'tiff']):
+                        # Check if file exists
+                        if os.path.exists(path):
+                            if path not in image_paths:
+                                image_paths.append(path)
+                                logger.info(f"Found valid image path: {path}")
+                        else:
+                            # Even if file doesn't exist, log the path for debugging
+                            logger.warning(f"Image path found but file doesn't exist: {path}")
         
         return image_paths
     
@@ -150,17 +126,11 @@ class ImageToImageAgent:
         
         # Remove metadata sections (but keep the user's actual instruction)
         metadata_patterns = [
-            r'\[IMAGE_FILES\].*?(?=\n[A-Z]|\n[a-z]|$)',  # Remove [IMAGE_FILES] sections
-            r'\[FILES\].*?(?=\n[A-Z]|\n[a-z]|$)',        # Remove [FILES] sections
-            r'\[IMAGE PATHS AVAILABLE\].*?(?=\n[A-Z]|\n[a-z]|$)',
-            r'\[FILE PATHS AVAILABLE\].*?(?=\n[A-Z]|\n[a-z]|$)',
-            r'Image path: [^\n\r]+',                      # Remove individual path lines
-            r'File path: [^\n\r]+',
-            r'Path: [^\n\r]+',
-            r'File URL: [^\n\r]+',
-            r'Note: These are direct file paths.*?(?=\n|\Z)',
-            r'Please process the above image.*?(?=\n|\Z)',
-            r'\d+\.\s*File (path|URL): [^\n\r]+',
+            r'The user has provided image files located at.*?(?=\n\n|\n[A-Z]|\Z)',
+            r'User request:\s*',
+            r'Image path:\s*[^\n\r]+',
+            r'File path:\s*[^\n\r]+',
+            r'Path:\s*[^\n\r]+',
         ]
         
         for pattern in metadata_patterns:
@@ -210,18 +180,6 @@ class ImageToImageAgent:
                 return None
         except Exception as e:
             logger.error(f"Error loading image from {image_path}: {e}")
-            return None
-    
-    def load_image_from_bytes(self, image_bytes: bytes) -> Optional[Image.Image]:
-        """Load an image from bytes data."""
-        try:
-            # Handle base64 encoded bytes
-            if isinstance(image_bytes, str):
-                image_bytes = base64.b64decode(image_bytes)
-                
-            return Image.open(BytesIO(image_bytes))
-        except Exception as e:
-            logger.error(f"Error loading image from bytes: {e}")
             return None
     
     def save_generated_image(self, image_data: bytes, output_path: str = None) -> Optional[str]:
@@ -281,134 +239,151 @@ class ImageToImageAgent:
             return None, f"Error: {str(e)}"
 
 class ADKImageToImageAgentExecutor(AgentExecutor):
-    """An AgentExecutor that runs an ADK-based Image-to-Image Agent with improved file handling."""
+    """An AgentExecutor that runs an ADK-based Image-to-Image Agent following the working pattern."""
 
     def __init__(self):
         # Don't initialize the agent here - do it lazily when needed
         self._agent = None
         self.runner = None
+        self.image_agent = ImageToImageAgent()
 
     async def _get_agent_and_runner(self):
         """Lazily initialize the agent and runner when first needed."""
         if self._agent is None:
             # Create the agent instance
-            self._agent = ImageToImageAgent()
+            self._agent = self.image_agent.agent
             self.runner = Runner(
-                app_name=self._agent.agent.name,
-                agent=self._agent.agent,
+                app_name=self._agent.name,
+                agent=self._agent,
                 artifact_service=InMemoryArtifactService(),
                 session_service=InMemorySessionService(),
                 memory_service=InMemoryMemoryService(),
             )
         return self._agent, self.runner
 
-    def _run_agent(
+    async def execute(
         self,
-        session_id: str,
-        new_message: genai_types.Content,
-        task_updater: TaskUpdater,
-    ) -> AsyncGenerator[Event, None]:
-        """Runs the ADK agent with the given message."""
-        return self.runner.run_async(
-            session_id=session_id,
-            user_id='self',
-            new_message=new_message,
-        )
+        context: RequestContext,
+        event_queue: EventQueue,
+    ):
+        """Executes the agent's logic based on the incoming A2A request."""
+        logger.info(f"Starting execution for task {context.task_id}")
+        updater = TaskUpdater(event_queue, context.task_id, context.context_id)
+        updater.submit()
+        updater.start_work()
+
+        temp_files_to_clean = []
+        try:
+            # Prepare message and files following the working pattern
+            augmented_prompt, temp_files_to_clean = await self._prepare_message_and_files(context.message.parts)
+            
+            # Create genai content
+            genai_content = genai_types.UserContent(parts=[genai_types.Part(text=augmented_prompt)])
+            
+            # Ensure agent and runner are initialized
+            await self._get_agent_and_runner()
+
+            # Process the request
+            await self._process_request(genai_content, context.context_id, updater, temp_files_to_clean)
+
+        except Exception as e:
+            logger.error(f"Error in execute for task {context.task_id}: {e}", exc_info=True)
+            updater.failed(error_message=f"Execution failed: {str(e)}")
+        finally:
+            # Clean up temporary files
+            for path in temp_files_to_clean:
+                try:
+                    os.remove(path)
+                    logger.info(f"Cleaned up temporary file: {path}")
+                except OSError as e:
+                    logger.error(f"Error removing temporary file {path}: {e}")
+
+    async def _prepare_message_and_files(self, parts: list[Part]) -> tuple[str, list[str]]:
+        """Saves file parts to temp files and creates an augmented prompt for the ADK agent."""
+        temp_file_paths = []
+        text_parts = []
+        
+        for part in parts:
+            part_root = part.root
+            if isinstance(part_root, FilePart) and isinstance(part_root.file, FileWithBytes):
+                file_suffix = os.path.splitext(part_root.file.filename or '.tmp')[1]
+                with tempfile.NamedTemporaryFile(delete=False, suffix=file_suffix) as tmp_file:
+                    tmp_file.write(part_root.file.bytes)
+                    temp_file_paths.append(tmp_file.name)
+                    logger.info(f"Saved incoming file to temporary path: {tmp_file.name}")
+            elif isinstance(part_root, TextPart):
+                text_parts.append(part_root.text)
+
+        user_prompt = " ".join(text_parts)
+        
+        # Also extract image paths from the text (for cases where paths are mentioned in text)
+        image_paths_from_text = self.image_agent.extract_image_paths_from_text(user_prompt)
+        if image_paths_from_text:
+            logger.info(f"Found image paths in text: {image_paths_from_text}")
+            temp_file_paths.extend(image_paths_from_text)
+        
+        if temp_file_paths:
+            path_info = "The user has provided image files located at the following paths: " + \
+                        ", ".join(f"'{p}'" for p in temp_file_paths) + ". "
+            return f"{path_info}\n\nUser request: {user_prompt}", temp_file_paths
+        
+        return user_prompt, temp_file_paths
 
     async def _process_request(
         self,
         new_message: genai_types.Content,
         session_id: str,
         task_updater: TaskUpdater,
-        original_message_parts: List[Any],
-    ) -> AsyncIterable[TaskStatus | Artifact]:
-        """Processes the incoming request with improved image handling."""
-        # Ensure agent and runner are initialized
-        agent, runner = await self._get_agent_and_runner()
-        
-        # Extract text parts from the message
-        text_parts = []
-        for part in new_message.parts:
-            if part.text:
-                text_parts.append(part.text)
-        
-        if not text_parts:
-            error_response = [TextPart(text="No text content found in the request. Please provide both image and transformation description.")]
-            task_updater.add_artifact(error_response)
-            task_updater.complete()
-            return
-        
-        # Combine all text parts
-        full_text = " ".join(text_parts)
-        logger.info(f"Processing request with text: {full_text[:200]}...")
-        
-        # PRIORITY 1: Extract image info from the original A2A message parts
-        image_info_list = agent.extract_image_info_from_request(original_message_parts)
-        logger.info(f"Extracted {len(image_info_list)} images from message parts")
-        
-        # PRIORITY 2: Fallback to text extraction if no images found in parts
-        if not image_info_list:
-            image_paths = agent.extract_image_paths_from_text(full_text)
-            logger.info(f"Extracted image paths from text: {image_paths}")
-            
-            # Convert paths to image info format
-            for path in image_paths:
-                image_info_list.append({
-                    'type': 'uri',
-                    'uri': path,
-                    'mime_type': 'image/jpeg',
-                    'is_local_path': True
-                })
-        
-        if not image_info_list:
-            error_response = [TextPart(text="No images found in the request. Please provide an image file along with your transformation request.")]
-            task_updater.add_artifact(error_response)
-            task_updater.complete()
-            return
-        
+        temp_file_paths: list[str],
+    ):
+        """Process the image transformation request."""
         try:
+            # Extract text from the message
+            text_parts = []
+            for part in new_message.parts:
+                if part.text:
+                    text_parts.append(part.text)
+            
+            full_text = " ".join(text_parts)
+            logger.info(f"Processing request with text: {full_text[:200]}...")
+            
+            if not temp_file_paths:
+                error_response = [TextPart(text="No images found in the request. Please provide an image file along with your transformation request.")]
+                task_updater.add_artifact(error_response)
+                task_updater.complete()
+                return
+            
             # Update status to indicate processing
             task_updater.update_status(
                 TaskState.working,
                 message=task_updater.new_agent_message([
-                    TextPart(text=f"Processing image transformation for {len(image_info_list)} image(s)...")
+                    TextPart(text=f"Processing image transformation for {len(temp_file_paths)} image(s)...")
                 ])
             )
             
             results = []
             
             # Process each image
-            for i, image_info in enumerate(image_info_list):
-                # Extract the clean user prompt using the improved method
-                all_image_paths = [info['uri'] for info in image_info_list if info['type'] == 'uri']
-                clean_prompt = agent.extract_user_prompt_from_text(full_text, all_image_paths)
+            for i, image_path in enumerate(temp_file_paths):
+                # Extract the clean user prompt
+                clean_prompt = self.image_agent.extract_user_prompt_from_text(full_text, temp_file_paths)
                 
                 logger.info(f"Clean prompt for image {i+1}: {clean_prompt}")
                 
-                # Load the image based on type
-                input_image = None
-                image_source = ""
-                
-                if image_info['type'] == 'uri':
-                    if image_info.get('is_local_path', False):
-                        input_image = agent.load_image_from_path(image_info['uri'])
-                        image_source = os.path.basename(image_info['uri'])
-                    else:
-                        # Handle remote URI - would need additional implementation
-                        logger.warning(f"Remote URI not yet supported: {image_info['uri']}")
-                        continue
-                
-                elif image_info['type'] == 'bytes':
-                    input_image = agent.load_image_from_bytes(image_info['bytes'])
-                    image_source = f"bytes_data_{i+1}"
+                # Load the image
+                input_image = self.image_agent.load_image_from_path(image_path)
+                image_source = os.path.basename(image_path)
                 
                 if input_image is None:
-                    error_text = f"❌ Failed to load image {i+1}: {image_source}"
+                    error_text = f"❌ Failed to load image {i+1}: {image_source} (path: {image_path})"
+                    logger.error(error_text)
                     results.append({'text': error_text})
                     continue
                 
+                logger.info(f"Successfully loaded image: {image_source}")
+                
                 # Generate the transformed image
-                result_path, ai_response = await agent.generate_image_to_image(input_image, clean_prompt, image_source)
+                result_path, ai_response = await self.image_agent.generate_image_to_image(input_image, clean_prompt, image_source)
                 
                 if result_path and os.path.exists(result_path):
                     # Read the generated image
@@ -433,7 +408,7 @@ class ADKImageToImageAgentExecutor(AgentExecutor):
                 response_parts = []
                 
                 # Add text summary
-                summary_text = f"Image transformation results for {len(image_info_list)} image(s):\n\n"
+                summary_text = f"Image transformation results for {len(temp_file_paths)} image(s):\n\n"
                 for i, result in enumerate(results, 1):
                     summary_text += f"{i}. {result['text']}\n"
                 
@@ -462,26 +437,8 @@ class ADKImageToImageAgentExecutor(AgentExecutor):
             task_updater.add_artifact(error_response)
             task_updater.complete()
 
-    async def execute(
-        self,
-        context: RequestContext,
-        event_queue: EventQueue,
-    ):
-        """Executes the agent's logic based on the incoming A2A request."""
-        updater = TaskUpdater(event_queue, context.task_id, context.context_id)
-        if not context.current_task:
-            updater.submit()
-        updater.start_work()
-        await self._process_request(
-            genai_types.UserContent(
-                parts=convert_a2a_parts_to_genai(context.message.parts),
-            ),
-            context.context_id,
-            updater,
-            context.message.parts,  # Pass original A2A parts for image extraction
-        )
-
     async def cancel(self, context: RequestContext, event_queue: EventQueue):
+        logger.warning(f"Cancellation requested for task {context.task_id}, but not supported.")
         raise ServerError(error=UnsupportedOperationError())
 
     async def _upsert_session(self, session_id: str):
@@ -528,35 +485,8 @@ def convert_a2a_part_to_genai(part: Part) -> genai_types.Part:
     raise ValueError(f'Unsupported part type: {type(part)}')
 
 
-def convert_genai_parts_to_a2a(parts: list[genai_types.Part]) -> list[Part]:
+def convert_genai_parts_to_a2a(parts: list[genai_types.Part] | None) -> list[Part]:
     """Converts a list of Google GenAI Part objects to a list of A2A Part objects."""
-    return [
-        convert_genai_part_to_a2a(part)
-        for part in parts
-        if (part.text or part.file_data or part.inline_data)
-    ]
-
-
-def convert_genai_part_to_a2a(part: genai_types.Part) -> Part:
-    """Converts a single Google GenAI Part object to an A2A Part object."""
-    if part.text:
-        return TextPart(text=part.text)
-    if part.file_data:
-        return FilePart(
-            file=FileWithUri(
-                uri=part.file_data.file_uri,
-                mime_type=part.file_data.mime_type,
-            )
-        )
-    if part.inline_data:
-        # Convert bytes to base64 string for FileWithBytes
-        data_base64 = base64.b64encode(part.inline_data.data).decode('utf-8')
-        return Part(
-            root=FilePart(
-                file=FileWithBytes(
-                    bytes=data_base64,  # Store as base64 string
-                    mime_type=part.inline_data.mime_type,
-                )
-            )
-        )
-    raise ValueError(f'Unsupported part type: {part}')
+    if not parts:
+        return []
+    return [Part(root=TextPart(text=p.text)) for p in parts if p.text]

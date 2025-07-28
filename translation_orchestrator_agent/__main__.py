@@ -28,6 +28,7 @@ logger.setLevel(logging.INFO)
 @click.option('--host', 'host', default='localhost')
 @click.option('--port', 'port', default=10020)
 @click.option('--discover-timeout', 'discover_timeout', default=10, help='Timeout for agent discovery in seconds')
+
 def main(host: str, port: int, discover_timeout: int):
     # Ensure ANTHROPIC_API_KEY is set for the orchestrator's model.
     if not os.getenv('ANTHROPIC_API_KEY'):

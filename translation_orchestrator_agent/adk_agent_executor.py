@@ -38,7 +38,7 @@ logger.setLevel(logging.DEBUG)
 _global_multimedia_context = {}
 
 class ADKOrchestratorAgentExecutor(AgentExecutor):
-    """Simplified ADK-based Research Orchestrator Agent Executor with multimedia support."""
+    """Advanced ADK-based Orchestrator Agent Executor with complete agent support."""
 
     def __init__(self, temp_file_dir: str = "/tmp/a2a_files"):
         # Initialize ADK components
@@ -89,6 +89,12 @@ class ADKOrchestratorAgentExecutor(AgentExecutor):
             media_type = 'audio'
         elif mime_type.startswith('application/pdf'):
             media_type = 'document'
+        elif mime_type.startswith('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'):
+            media_type = 'excel'
+        elif mime_type.startswith('application/vnd.ms-excel'):
+            media_type = 'excel'
+        elif mime_type.startswith('text/csv'):
+            media_type = 'excel'
         elif mime_type.startswith('text/'):
             media_type = 'text'
         else:
@@ -99,9 +105,13 @@ class ADKOrchestratorAgentExecutor(AgentExecutor):
             'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif',
             'image/webp': '.webp', 'image/bmp': '.bmp', 'image/tiff': '.tiff',
             'video/mp4': '.mp4', 'video/avi': '.avi', 'video/mov': '.mov',
-            'video/mkv': '.mkv', 'audio/mp3': '.mp3', 'audio/mpeg': '.mp3',
-            'audio/wav': '.wav', 'audio/flac': '.flac', 'audio/ogg': '.ogg',
-            'application/pdf': '.pdf', 'text/plain': '.txt',
+            'video/mkv': '.mkv', 'video/webm': '.webm', 'video/flv': '.flv',
+            'audio/mp3': '.mp3', 'audio/mpeg': '.mp3', 'audio/wav': '.wav', 
+            'audio/flac': '.flac', 'audio/ogg': '.ogg', 'audio/aac': '.aac',
+            'application/pdf': '.pdf', 'text/plain': '.txt', 'text/markdown': '.md',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+            'application/vnd.ms-excel': '.xls', 'text/csv': '.csv',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
         }
         extension = extension_map.get(mime_type, '.bin')
         
@@ -139,7 +149,7 @@ class ADKOrchestratorAgentExecutor(AgentExecutor):
                 media_type, _ = self._get_mime_type_info(mime_type)
                 
                 if isinstance(file_obj, FileWithUri):
-                    # Handle file URI - IMPROVED
+                    # Handle file URI
                     file_path = file_obj.uri
                     if file_path.startswith('file://'):
                         file_path = file_path[7:]
@@ -158,7 +168,24 @@ class ADKOrchestratorAgentExecutor(AgentExecutor):
                     file_paths.append(file_info)
                     logger.info(f"Added file URI: {file_path} (exists: {file_info['exists']})")
                     
-                # ... rest of FileWithBytes handling
+                elif isinstance(file_obj, FileWithBytes):
+                    # Handle file bytes
+                    file_data = getattr(file_obj, 'data', None) or getattr(file_obj, 'bytes', None)
+                    
+                    if file_data:
+                        # Save to temporary file
+                        file_path = self._save_temp_file(file_data, mime_type, context_id)
+                        
+                        file_info = {
+                            'path': file_path,
+                            'mime_type': mime_type,
+                            'media_type': media_type,
+                            'source': 'bytes',
+                            'exists': True,
+                            'size': len(file_data)
+                        }
+                        file_paths.append(file_info)
+                        logger.info(f"Added file bytes: {file_path} ({len(file_data)} bytes)")
         
         # Store context immediately after processing
         if file_paths:
@@ -176,31 +203,22 @@ class ADKOrchestratorAgentExecutor(AgentExecutor):
             # Add multimedia file information if present
             if file_paths:
                 file_info_lines = []
-                routing_hints = []
                 
                 for path_info in file_paths:
                     file_info_lines.append(
                         f"- {path_info['media_type']} file: {path_info['path']} "
-                        f"(MIME: {path_info['mime_type']})"
+                        f"(MIME: {path_info['mime_type']}, Size: {path_info['size']} bytes)"
                     )
-                    
-                    # Add routing hints based on media type
-                    if path_info['media_type'] == 'image':
-                        routing_hints.append("* Images: Use image_modification_function")
-                    elif path_info['media_type'] == 'audio':
-                        routing_hints.append("* Audio: Use audio_conversational_function")
-                    elif path_info['media_type'] == 'video':
-                        routing_hints.append("* Video: Use video_function")
                 
                 multimedia_context = f"""
 [MULTIMEDIA FILES AVAILABLE]
 The following files are available for processing:
 {chr(10).join(file_info_lines)}
 
-[ROUTING INSTRUCTIONS]
+[CONTEXT INFORMATION]
 - Files are saved as temporary paths and can be accessed directly
 - Pass file paths directly to agent functions (do NOT convert to base64)
-{chr(10).join(set(routing_hints)) if routing_hints else ""}
+- Context ID: {self._current_context_id}
 
 [USER REQUEST]
 {user_query}
@@ -225,55 +243,61 @@ The following files are available for processing:
     async def _process_agent_events(self, session_id: str, message: genai_types.Content, 
                                   task_updater: TaskUpdater) -> None:
         """Process events from the ADK agent."""
-        # Get the async generator properly
-        event_stream = self.runner.run_async(
-            session_id=session_id,
-            user_id='self',
-            new_message=message,
-        )
-        
-        async for event in event_stream:
-            logger.debug(f'Received ADK event: {event}')
+        try:
+            # Get the async generator properly
+            event_stream = self.runner.run_async(
+                session_id=session_id,
+                user_id='self',
+                new_message=message,
+            )
             
-            if event.is_final_response():
-                logger.info("Final response received from agent")
-                # Handle final response
-                if event.content and event.content.parts:
-                    final_parts = convert_genai_parts_to_a2a(event.content.parts)
-                    task_updater.add_artifact(parts=final_parts)
-                else:
-                    # Fallback for empty response
-                    default_part = Part(root=TextPart(text="No response content available"))
-                    task_updater.add_artifact(parts=[default_part])
+            async for event in event_stream:
+                logger.debug(f'Received ADK event: {event}')
                 
-                task_updater.complete()
-                logger.info("Task completed successfully")
-                break
+                if event.is_final_response():
+                    logger.info("Final response received from agent")
+                    # Handle final response
+                    if event.content and event.content.parts:
+                        final_parts = convert_genai_parts_to_a2a(event.content.parts)
+                        task_updater.add_artifact(parts=final_parts)
+                    else:
+                        # Fallback for empty response
+                        default_part = Part(root=TextPart(text="No response content available"))
+                        task_updater.add_artifact(parts=[default_part])
+                    
+                    task_updater.complete()
+                    logger.info("Task completed successfully")
+                    break
+                    
+                elif event.get_function_calls():
+                    logger.info("Function calls detected in event")
+                    # Store multimedia context when function calls are made
+                    if self._current_multimedia_parts and self._current_context_id:
+                        self._store_multimedia_context(self._current_context_id, self._current_multimedia_parts)
+                    
+                    function_calls = event.get_function_calls()
+                    logger.info(f"Function calls generated: {function_calls}")
+                    
+                elif event.content and event.content.parts:
+                    logger.info("Interim response with content parts")
+                    # Handle interim responses
+                    task_updater.update_status(
+                        TaskState.working,
+                        message=task_updater.new_agent_message(
+                            convert_genai_parts_to_a2a(event.content.parts)
+                        ),
+                    )
                 
-            elif event.get_function_calls():
-                logger.info("Function calls detected in event")
-                # Store multimedia context when function calls are made
-                if self._current_multimedia_parts and self._current_context_id:
-                    self._store_multimedia_context(self._current_context_id, self._current_multimedia_parts)
-                
-                function_calls = event.get_function_calls()
-                logger.info(f"Function calls generated: {function_calls}")
-                
-            elif event.content and event.content.parts:
-                logger.info("Interim response with content parts")
-                # Handle interim responses
-                task_updater.update_status(
-                    TaskState.working,
-                    message=task_updater.new_agent_message(
-                        convert_genai_parts_to_a2a(event.content.parts)
-                    ),
-                )
-            
-            # Handle errors
-            if hasattr(event, 'error_code') and event.error_code:
-                logger.error(f"Event error: {event.error_code}")
-                if event.error_code == 'MALFORMED_FUNCTION_CALL':
-                    logger.error("Check agent tool definitions")
+                # Handle errors
+                if hasattr(event, 'error_code') and event.error_code:
+                    logger.error(f"Event error: {event.error_code}")
+                    if event.error_code == 'MALFORMED_FUNCTION_CALL':
+                        logger.error("Check agent tool definitions")
+                        
+        except Exception as e:
+            logger.error(f"Error processing agent events: {e}")
+            # Ensure task is marked as failed
+            task_updater.fail(message=f"Agent execution failed: {str(e)}")
 
     async def execute(self, context: RequestContext, event_queue: EventQueue):
         """Main execution method."""
@@ -282,32 +306,37 @@ The following files are available for processing:
             updater.submit()
         updater.start_work()
         
-        # Set current context
-        self._current_context_id = context.context_id
-        
-        # Process multimedia content
-        user_query, file_paths = await self._process_multimedia_content(
-            context.message.parts, context.context_id
-        )
-        self._current_multimedia_parts = file_paths
-        
-        logger.info(f"Processing query: {user_query[:100]}...")
-        if file_paths:
-            logger.info(f"With {len(file_paths)} multimedia files")
-        
-        # Create enhanced prompt
-        enhanced_prompt = self._create_enhanced_prompt(user_query, file_paths)
-        
-        # Create GenAI message
-        user_content = genai_types.UserContent(
-            parts=[genai_types.Part(text=enhanced_prompt)]
-        )
-        
-        # Get or create session
-        session = await self._get_or_create_session(context.context_id)
-        
-        # Process the request
-        await self._process_agent_events(session.id, user_content, updater)
+        try:
+            # Set current context
+            self._current_context_id = context.context_id
+            
+            # Process multimedia content
+            user_query, file_paths = await self._process_multimedia_content(
+                context.message.parts, context.context_id
+            )
+            self._current_multimedia_parts = file_paths
+            
+            logger.info(f"Processing query: {user_query[:100]}...")
+            if file_paths:
+                logger.info(f"With {len(file_paths)} multimedia files")
+            
+            # Create enhanced prompt
+            enhanced_prompt = self._create_enhanced_prompt(user_query, file_paths)
+            
+            # Create GenAI message
+            user_content = genai_types.UserContent(
+                parts=[genai_types.Part(text=enhanced_prompt)]
+            )
+            
+            # Get or create session
+            session = await self._get_or_create_session(context.context_id)
+            
+            # Process the request
+            await self._process_agent_events(session.id, user_content, updater)
+            
+        except Exception as e:
+            logger.error(f"Execution error: {e}")
+            updater.fail(message=f"Execution failed: {str(e)}")
 
     async def _get_or_create_session(self, session_id: str):
         """Get existing session or create new one."""
