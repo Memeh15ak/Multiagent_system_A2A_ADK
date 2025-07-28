@@ -3,7 +3,9 @@
 A comprehensive multi-agent system built with A2A (Agent-to-Agent) and ADK (Agent Development Kit) frameworks, featuring 11+ specialized agents for various tasks including RAG, Excel processing, audio processing, image analysis, and more.
 
 ## How it works??
-![How it works?](https://github.com/Memeh15ak/Multiagent_system_A2A_ADK/blob/master/media/Rag.gif)
+![How it works?](https://github.com/Memeh15ak/Multiagent_system_A2A_ADK/blob/master/media/Rag_Img.gif)
+![How it works?](https://github.com/Memeh15ak/Multiagent_system_A2A_ADK/blob/master/media/Img.mp4)
+
 ## 🏗️ System Architecture
 
 ```
