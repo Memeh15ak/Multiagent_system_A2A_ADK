@@ -1,8 +1,8 @@
-# Multi-Agent RAG System
+# 🤖Multi-Agent RAG System
 
 A comprehensive multi-agent system built with A2A (Agent-to-Agent) and ADK (Agent Development Kit) frameworks, featuring 11+ specialized agents for various tasks including RAG, Excel processing, audio processing, image analysis, and more.
 
-## How it works??(Example of Rag Agent)
+## 📝How it works??(Example of Rag Agent)
 ![RAG AGENT](https://github.com/Memeh15ak/Multiagent_system_A2A_ADK/blob/master/media/Rag_Img.gif)
 
 ## 🏗️ System Architecture
