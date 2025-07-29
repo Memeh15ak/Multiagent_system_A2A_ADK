@@ -2,8 +2,8 @@
 
 A comprehensive multi-agent system built with A2A (Agent-to-Agent) and ADK (Agent Development Kit) frameworks, featuring 11+ specialized agents for various tasks including RAG, Excel processing, audio processing, image analysis, and more.
 
-## 📝How it works??(Example of Rag Agent)
-![RAG AGENT](https://github.com/Memeh15ak/Multiagent_system_A2A_ADK/blob/master/media/Rag_Img.gif)
+## 📝How it works??(Example of Image Agent)
+![IMAGE AGENT](https://github.com/Memeh15ak/Multiagent_system_A2A_ADK/blob/master/media/Img_final.gif)
 
 ## 🏗️ System Architecture
 
@@ -61,8 +61,8 @@ multiagent-rag-system/
 ├── Dockerfile               # Docker configuration
 └── README.md
 ```
-## IMG MODIFIER AGENT
-![IMG MODIFIER AGENT](https://github.com/Memeh15ak/Multiagent_system_A2A_ADK/blob/master/media/Img_to_Img.gif)
+## RAG MODIFIER AGENT
+![RAG MODIFIER AGENT](https://github.com/Memeh15ak/Multiagent_system_A2A_ADK/blob/master/media/rag_final.gif)
 ## 🚀 Quick Start
 
 ### Prerequisites

@@ -1,0 +1,32 @@
+# multi_agent_system/docker/Dockerfile.server
+
+# Use a lightweight Python base image
+FROM python:3.10-slim-buster
+
+# Set the working directory
+WORKDIR /app
+
+# Copy only requirements to leverage Docker cache
+COPY requirements.txt ./
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the rest of the application code
+COPY . .
+
+# Set environment variables (for production, use Docker secrets or proper env management)
+ENV PERPLEXITY_API_KEY="your_perplexity_api_key_here"
+ENV WEATHER_API_KEY="your_weather_api_key_here"
+ENV NEWS_API_KEY="your_news_api_key_here"
+ENV BRAVE_SEARCH_API_KEY="your_brave_search_api_key_here"
+ENV AGENT_SERVER_HOST="0.0.0.0"
+ENV AGENT_SERVER_PORT="8000"
+ENV WEBSOCKET_PORT="8001"
+
+# Expose the ports
+EXPOSE 8000
+EXPOSE 8001
+
+# Command to run the server
+CMD ["python", "scripts/start_server.py"]

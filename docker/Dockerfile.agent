@@ -1,0 +1,22 @@
+# multi_agent_system/docker/Dockerfile.agent
+
+# This Dockerfile is generic for all agents.
+# You might create separate Dockerfiles for each agent if they have vastly different dependencies.
+FROM python:3.10-slim-buster
+
+WORKDIR /app
+
+COPY requirements.txt ./
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+# Environment variables for agent-specific API keys
+ENV WEATHER_API_KEY="your_weather_api_key_here"
+ENV NEWS_API_KEY="your_news_api_key_here"
+ENV BRAVE_SEARCH_API_KEY="your_brave_search_api_key_here"
+
+# Default command - this will be overridden by docker-compose for each specific agent
+# This serves as a placeholder.
+CMD ["echo", "No default agent command. Use docker-compose."]
