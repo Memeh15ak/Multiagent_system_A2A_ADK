@@ -62,7 +62,7 @@ multiagent-rag-system/
 └── README.md
 ```
 ## RAG MODIFIER AGENT
-![RAG MODIFIER AGENT](https://github.com/Memeh15ak/Multiagent_system_A2A_ADK/blob/master/media/rag_final.gif)
+![RAG MODIFIER AGENT](https://github.com/Memeh15ak/Multiagent_system_A2A_ADK/blob/master/media/Rag_small.gif)
 ## 🚀 Quick Start
 
 ### Prerequisites
